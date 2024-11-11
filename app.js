@@ -86,6 +86,32 @@ app.post("/register", async (req, res) => {
   }
 });
 
+app.post("/registerClasse", async (req, res) => {
+    const { nomClasse, niveau, capacite } = req.body;
+    console.log(req.body);
+  
+    // Vérifie si tous les champs sont remplis
+    if (!nomClasse || !niveau || !capacite) {
+      return res.status(400).send({ status: "error", data: "Tous les champs sont requis." });
+    }
+  
+    // Vérifie si la classe existe déjà
+    const classExists = await Classe.findOne({ nomClasse, niveau });
+    if (classExists) {
+      return res.status(409).send({ status: "error", data: "Cette classe existe déjà." });
+    }
+  
+    try {
+      // Crée la classe
+      await Classe.create({ nomClasse, niveau, capacite });
+      return res.send({ status: "ok", data: "Classe créée avec succès" });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).send({ status: "error", data: "Erreur interne du serveur" });
+    }
+  });
+  
+
 // app.post("/login-user", async (req, res) => {
 //     const { identifiant, password} = req.body;
 //     console.log(req.body);
@@ -248,13 +274,29 @@ app.post("/update-user", async (req, res) => {
 
 app.get("/get-all-user", async (req, res) => {
     try {
-        const data = await User.find({});
-        res.send({ status: "Ok", data: data });
+        // Récupérer les données de chaque modèle utilisateur
+        const admins = await User_Admin.find({});
+        const professeurs = await User_Professeur.find({});
+        const eleves = await User_Eleve.find({});
+        const parents = await User_Parent.find({});
+        const surveillants = await User_Surveillant.find({});
+
+        // Fusionner toutes les données des utilisateurs
+        const allUsers = [
+            ...admins.map(user => ({ ...user.toObject(), userType: "Admin" })),
+            ...professeurs.map(user => ({ ...user.toObject(), userType: "Professeur" })),
+            ...eleves.map(user => ({ ...user.toObject(), userType: "Eleve" })),
+            ...parents.map(user => ({ ...user.toObject(), userType: "Parent" })),
+            ...surveillants.map(user => ({ ...user.toObject(), userType: "Surveillant" }))
+        ];
+
+        res.send({ status: "Ok", data: allUsers });
     } catch (error) {
         console.error(error);
         return res.status(500).send({ status: "error", data: "Internal server error." });
     }
 });
+
 
 app.post("/delete-user", async (req, res) => {
     const { id } = req.body;
