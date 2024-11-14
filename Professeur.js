@@ -6,8 +6,10 @@ const ProfesseurSchema = new mongoose.Schema({
     prenom: String,
     telephone: String,
     password: String,
-    matieres: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Matiere' }],
-    classesEnseignees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Classe' }], 
+    classe_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Classe', // Référence à la collection Classe
+    },
     userType: String
 }, {
     collection: "Professeur"

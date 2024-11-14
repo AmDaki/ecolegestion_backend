@@ -1,13 +1,15 @@
 const mongoose = require("mongoose");
 
-const ClasseSchema = new mongoose.Schema({
-    nomClasse: String,
-    niveau: String,
-    capacité: String,
-    eleves: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Eleve' }],
-    enseignants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Enseignant' }]
-}, {
-    collection: "Classe"
+const classeSchema = new mongoose.Schema({
+    nomClasse: { type: String, required: true },
+    niveau: { type: String, required: true },
+    capacite: { type: Number, required: true },
+    professeur_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Professeur', // Référence à la collection Professeur
+    },
 });
 
-mongoose.model("Classe", ClasseSchema);
+const Classe = mongoose.model("Classe", classeSchema);
+
+module.exports = Classe;

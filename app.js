@@ -33,6 +33,7 @@ const User_Parent = mongoose.model("Parent");
 const User_Eleve = mongoose.model("Eleves");
 const User_Surveillant = mongoose.model("Surveillants");
 const User_Admin = mongoose.model("Admin");
+const Classe = mongoose.model("Classe");  
 
 app.get("/", (req, res) => {
     res.send({ status: "Started" });
@@ -112,52 +113,6 @@ app.post("/registerClasse", async (req, res) => {
   });
   
 
-// app.post("/login-user", async (req, res) => {
-//     const { identifiant, password} = req.body;
-//     console.log(req.body);
-
-//     if (!identifiant || !password ) {
-//         return res.status(400).send({ status: "error", data: "Identifiant and password are required." });
-//     }
-
-//     let oldUser;
-//     try {
-//         if (userType === "Admin") {
-//             oldUser = await User_Admin.findOne({ identifiant });
-//         } else if (userType === "Professeur") {
-//             oldUser = await User_Professeur.findOne({ identifiant });
-//         } else if (userType === "Eleve") {
-//             oldUser = await User_Eleve.findOne({ identifiant });
-//         } else if (userType === "Parent") {
-//             oldUser = await User_Parent.findOne({ identifiant });
-//         } else if (userType === "Surveillant") {
-//             oldUser = await User_Surveillant.findOne({ identifiant });
-//         } else {
-//             return res.status(400).send({ status: "error", data: "Invalid userType" });
-//         }
-
-//         if (!oldUser) {
-//             return res.status(404).send({ status: "error", data: "User doesn't exist!" });
-//         }
-
-//         // Comparaison directe du mot de passe (NON RECOMMANDÉ)
-//         if (password !== oldUser.password) {
-//             return res.status(401).send({ status: "error", data: "Invalid password" });
-//         }
-
-//         const token = jwt.sign({ identifiant: oldUser.identifiant, userType: oldUser.userType }, JWT_SECRET);
-//         console.log("Token generated:", token);
-
-//         return res.status(200).send({
-//             status: "ok",
-//             data: token,
-//             userType: oldUser.userType,
-//         });
-//     } catch (error) {
-//         console.error("Error during login:", error);
-//         return res.status(500).send({ status: "error", data: "Something went wrong!" });
-//     }
-// });
 
 app.post("/login-user", async (req, res) => {
   const { identifiant, password } = req.body;
@@ -201,22 +156,7 @@ app.post("/login-user", async (req, res) => {
   }
 });
 
-// app.post("/userdata", async (req, res) => {
-//     const { token } = req.body;
-//     try {
-//         const user = jwt.verify(token, JWT_SECRET);
-//         const useridentifiant = user.identifiant;
 
-//         const userData = await User.findOne({ identifiant: useridentifiant });
-//         if (!userData) {
-//             return res.status(404).send({ status: "error", data: "User not found." });
-//         }
-
-//         return res.send({ status: "Ok", data: userData });
-//     } catch (error) {
-//         return res.status(401).send({ status: "error", data: "Invalid token." });
-//     }
-// });
 app.post("/userdata", async (req, res) => {
   const { token } = req.body;
   try {
@@ -297,6 +237,65 @@ app.get("/get-all-user", async (req, res) => {
     }
 });
 
+// Route pour obtenir tous les professeurs
+app.get('/get-all-professeurs', async (req, res) => {
+    try {
+        // Utilise mongoose pour obtenir tous les professeurs depuis la collection Professeur
+        const professeurs = await User_Professeur.find({}).select('identifiant nom');
+        res.json({ status: 'ok', professeurs });
+    } catch (error) {
+        console.error(error);
+        res.json({ status: 'error', message: 'Erreur lors de la récupération des professeurs' });
+    }
+});
+
+// Route pour obtenir toutes les classes
+app.get('/get-all-classes', async (req, res) => {
+    try {
+        // Récupérer toutes les classes depuis la collection Classe
+        const classes = await Classe.find({}).select('nomClasse');
+        res.json({ status: 'ok', classes });
+    } catch (error) {
+        console.error(error);
+        res.json({ status: 'error', message: 'Erreur lors de la récupération des classes' });
+    }
+});
+
+
+// Route pour assigner une classe à un professeur
+app.post('/assign-class-to-professeur', async (req, res) => {
+    const { professeurId, classId } = req.body;
+    try {
+        // Vérifier si le professeur et la classe existent
+        const professeur = await Professeur.findById(professeurId);
+        const classe = await Classe.findById(classId);
+
+        if (!professeur) {
+            return res.status(404).send({ status: 'error', data: 'Professeur non trouvé' });
+        }
+
+        if (!classe) {
+            return res.status(404).send({ status: 'error', data: 'Classe non trouvée' });
+        }
+
+        // Assigner la classe au professeur
+        professeur.classe_id = classId;
+        await professeur.save();
+
+        // Assigner le professeur à la classe
+        classe.professeur_id = professeurId;
+        await classe.save();
+
+        res.json({ status: 'ok' });
+    } catch (error) {
+        console.error('Erreur lors de l\'attribution de la classe:', error);
+        res.status(500).send({ status: 'error', message: 'Erreur lors de l\'attribution de la classe' });
+    }
+});
+
+
+
+  
 
 app.post("/delete-user", async (req, res) => {
     const { id } = req.body;
