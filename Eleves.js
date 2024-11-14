@@ -6,11 +6,12 @@ const ElevesSchema = new mongoose.Schema({
     prenom: String,
     telephone: String,
     password: String,
-    DateNaiss: String,
-    classe: String,
+    DateNaissance: String,
     userType: String,
-    classeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Classe' },
-    bulletin: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Bulletin' }]
+    NiveauClasse: String,
+
+    classeId: { type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Classe' },
 }, {
     collection: "Eleves"
 });

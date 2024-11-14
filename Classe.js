@@ -8,6 +8,8 @@ const classeSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Professeur', // Référence à la collection Professeur
     },
+    EleveId: { type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Eleves' },
 });
 
 const Classe = mongoose.model("Classe", classeSchema);

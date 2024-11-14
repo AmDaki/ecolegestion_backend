@@ -40,7 +40,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-  const { identifiant, nom, prenom, telephone, password, userType, matiere, classe, dateNaissance } = req.body;
+  const { identifiant, nom, prenom, telephone, password, userType, matiere, classe, DateNaissance,NiveauClasse } = req.body;
   console.log(req.body);
 
   // Vérifie si les champs requis sont fournis
@@ -70,7 +70,7 @@ app.post("/register", async (req, res) => {
           await User_Professeur.create({ identifiant, nom, prenom, telephone, password, matiere, userType });
           return res.send({ status: "ok", data: "Professeur Created" });
       } else if (userType === "Eleve") {
-          await User_Eleve.create({ identifiant, nom, prenom, telephone, password, classe, dateNaissance, userType });
+          await User_Eleve.create({ identifiant, nom, prenom, telephone, password, classe, DateNaissance, userType,NiveauClasse });
           return res.send({ status: "ok", data: "Eleve Created" });
       } else if (userType === "Parent") {
           await User_Parent.create({ identifiant, nom, prenom, telephone, password, userType });
@@ -191,26 +191,49 @@ app.post("/userdata", async (req, res) => {
 });
 
 
-app.post("/update-user", async (req, res) => {
-    const { identifiant, nom, prenom, telephone } = req.body;
-    console.log(req.body);
-    try {
-        const updatedUser = await User.updateOne(
-            { identifiant: identifiant },
-            {
-                $set: { nom, prenom, telephone },
-            }
-        );
+app.put("/update-user", async (req, res) => {
+    const { identifiant, nom, prenom, telephone, password, userType } = req.body;
+ 
 
-        if (updatedUser.nModified === 0) {
-            return res.status(404).send({ status: "error", data: "User not found." });
-        }
-        res.send({ status: "Ok", data: "Updated" });
+    try {
+        
+      let user;
+      switch (userType) {
+        case 'professeur':
+          user = await User_Professeur.findOne({ identifiant });
+          break;
+          case 'Parent':
+          user = await User_Parent.findOne({ identifiant });
+          break;
+        case 'Admin':
+          user = await User_Admin.findOne({ identifiant });
+          break;
+        case 'Eleve':
+          user = await User_Eleve.findOne({ identifiant });
+          break;
+        default:
+          return res.status(400).json({ status: 'error', message: 'Type d\'utilisateur non valide' });
+      }
+  
+      if (!user) {
+        return res.status(404).json({ status: 'error', message: 'Utilisateur non trouvé' });
+      }
+  
+      // Mise à jour des données de l'utilisateur
+      user.nom = nom;
+      user.prenom = prenom;
+      user.telephone = telephone;
+      user.password = password;
+      
+      await user.save();
+  
+      res.status(200).json({ status: 'Ok', message: 'Utilisateur mis à jour avec succès' });
     } catch (error) {
-        console.error(error);
-        return res.status(500).send({ status: "error", data: "Internal server error." });
+      console.error(error);
+      res.status(500).json({ status: 'error', message: 'Erreur lors de la mise à jour' });
     }
-});
+  });
+  
 
 app.get("/get-all-user", async (req, res) => {
     try {
@@ -236,15 +259,60 @@ app.get("/get-all-user", async (req, res) => {
         return res.status(500).send({ status: "error", data: "Internal server error." });
     }
 });
+// Route pour obtenir toutes les classes
+app.get('/get-all-classes', async (req, res) => {
+    try {
+        // Récupérer le niveau depuis les paramètres de la requête
+        const { niveau } = req.query;
+
+        // Filtrer les classes selon le niveau sélectionné
+        const classes = await Classe.find({ niveau }).select('nomClasse niveau');
+
+        res.json({ status: 'ok', classes });
+    } catch (error) {
+        console.error(error);
+        res.json({ status: 'error', message: 'Erreur lors de la récupération des classes' });
+    }
+});
+
+// Pour obtenir tous les élèves sans tableau
+app.get('/get-eleves-by-niveau', async (req, res) => {
+    const { niveau } = req.query; // On récupère le niveau depuis les paramètres de requête
+    
+    try {
+        const eleves = await User_Eleve.find({ NiveauClasse: niveau }).select('identifiant nom prenom'); // Filtrage par niveau
+        
+        if (eleves.length === 0) {
+            return res.json({ status: 'ok', message: 'Aucun élève trouvé pour ce niveau' });
+        }
+        
+        res.json({ status: 'ok', eleves: eleves }); // Retourne un objet avec la clé 'eleves'
+    } catch (error) {
+        console.error('Erreur lors de la récupération des élèves:', error);
+        res.json({ status: 'error', message: 'Erreur lors de la récupération des élèves' });
+    }
+});
+
+
+
+
+
 
 // Route pour obtenir tous les professeurs
 app.get('/get-all-professeurs', async (req, res) => {
     try {
         // Utilise mongoose pour obtenir tous les professeurs depuis la collection Professeur
-        const professeurs = await User_Professeur.find({}).select('identifiant nom');
-        res.json({ status: 'ok', professeurs });
+        const professeurs = await User_Professeur.find({}).select('identifiant nom prenom');
+        
+        // Crée une structure de réponse avec le label combiné de nom et prénom
+        const professeursAvecLabel = professeurs.map(prof => ({
+            identifiant: prof.identifiant,
+            label: `${prof.nom} ${prof.prenom}` // Combine nom et prénom
+        }));
+        
+        res.json({ status: 'ok', professeurs: professeursAvecLabel });
     } catch (error) {
-        console.error(error);
+        console.error('Erreur lors de la récupération des professeurs:', error);
         res.json({ status: 'error', message: 'Erreur lors de la récupération des professeurs' });
     }
 });
@@ -264,53 +332,102 @@ app.get('/get-all-classes', async (req, res) => {
 
 // Route pour assigner une classe à un professeur
 app.post('/assign-class-to-professeur', async (req, res) => {
-    const { professeurId, classId } = req.body;
+    const { professeurIdentifiant, nomClasse } = req.body; // Modification des noms des champs reçus
+
     try {
-        // Vérifier si le professeur et la classe existent
-        const professeur = await Professeur.findById(professeurId);
-        const classe = await Classe.findById(classId);
-
-        if (!professeur) {
-            return res.status(404).send({ status: 'error', data: 'Professeur non trouvé' });
-        }
-
+        // Trouver la classe par son nom
+        const classe = await Classe.findOne({ nomClasse });
         if (!classe) {
-            return res.status(404).send({ status: 'error', data: 'Classe non trouvée' });
+            return res.status(404).send({ status: "error", data: "Classe introuvable" });
         }
 
-        // Assigner la classe au professeur
-        professeur.classe_id = classId;
-        await professeur.save();
+        // Mettre à jour la classe avec l'identifiant du professeur
+        const updatedClasse = await Classe.updateOne(
+            { nomClasse },
+            { $set: { professeur_identifiant: professeurIdentifiant } }  // Enregistrer avec identifiant
+        );
 
-        // Assigner le professeur à la classe
-        classe.professeur_id = professeurId;
-        await classe.save();
+        if (updatedClasse.nModified === 0) {
+            return res.status(404).send({ status: "error", data: "Impossible d'attribuer la classe" });
+        }
 
-        res.json({ status: 'ok' });
+        res.json({ status: 'ok', message: 'Classe attribuée avec succès' });
     } catch (error) {
         console.error('Erreur lors de l\'attribution de la classe:', error);
-        res.status(500).send({ status: 'error', message: 'Erreur lors de l\'attribution de la classe' });
+        res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe' });
     }
 });
+// Route pour assigner une classe aux élèves d'un niveau sélectionné
+app.post('/assign-class-to-eleves', async (req, res) => {
+    const { niveau, nomClasse } = req.body; // Récupérer le niveau et le nom de la classe
+
+    try {
+        // Trouver la classe par son nom
+        const classe = await Classe.findOne({ nomClasse });
+        if (!classe) {
+            return res.status(404).send({ status: "error", message: "Classe introuvable" });
+        }
+
+        // Mettre à jour les élèves du niveau sélectionné avec la classe
+        const updatedEleves = await Eleve.updateMany(
+            { niveau },
+            { $set: { classe: nomClasse } }  // Attribuer la classe aux élèves du niveau sélectionné
+        );
+
+        if (updatedEleves.nModified === 0) {
+            return res.status(404).send({ status: "error", message: "Aucun élève mis à jour pour ce niveau" });
+        }
+
+        res.json({ status: 'ok', message: 'Classe attribuée aux élèves avec succès' });
+    } catch (error) {
+        console.error('Erreur lors de l\'attribution de la classe aux élèves:', error);
+        res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe aux élèves' });
+    }
+});
+
+
 
 
 
   
 
 app.post("/delete-user", async (req, res) => {
-    const { id } = req.body;
+    const { identifiant, userType } = req.body;
+
     try {
-        const deletedUser = await User.deleteOne({ _id: id });
-        if (deletedUser.deletedCount === 0) {
-            return res.status(404).send({ status: "error", data: "User not found." });
+        let deletedUser;
+
+        // Suppression en fonction du type d'utilisateur
+        switch (userType) {
+            case 'Professeur':
+                deletedUser = await User_Professeur.deleteOne({ identifiant });
+                break;
+            case 'Admin':
+                deletedUser = await User_Admin.deleteOne({ identifiant });
+                break;
+            case 'Eleve':
+                deletedUser = await User_Eleve.deleteOne({ identifiant });
+                break;
+            case 'Parent':
+                deletedUser = await User_Parent.deleteOne({ identifiant });
+                break;
+            default:
+                return res.status(400).send({ status: "error", data: "Type d'utilisateur non valide." });
         }
-        res.send({ status: "Ok", data: "User Deleted" });
+
+        if (deletedUser.deletedCount === 0) {
+            return res.status(404).send({ status: "error", data: "Utilisateur non trouvé." });
+        }
+
+        res.send({ status: "Ok", data: "Utilisateur supprimé avec succès." });
     } catch (error) {
         console.error(error);
-        return res.status(500).send({ status: "error", data: "Internal server error." });
+        return res.status(500).send({ status: "error", data: "Erreur interne du serveur." });
     }
 });
 
+
 app.listen(5000, () => {
     console.log("Node js server started.");
+   
 });
