@@ -26,6 +26,7 @@ require('./Professeur');
 require('./Surveillants');
 require('./Utilisateur');
 require('./Admin');
+require ('./EmploiTemps');
 
 const User = mongoose.model("UserInfo");
 const User_Professeur = mongoose.model("Professeur");
@@ -34,6 +35,7 @@ const User_Eleve = mongoose.model("Eleves");
 const User_Surveillant = mongoose.model("Surveillants");
 const User_Admin = mongoose.model("Admin");
 const Classe = mongoose.model("Classe");  
+const EmploiTemps=mongoose.model("EmploiTemps");
 
 app.get("/", (req, res) => {
     res.send({ status: "Started" });
@@ -112,7 +114,32 @@ app.post("/registerClasse", async (req, res) => {
     }
   });
   
-
+  app.post('/save-emploitemps', async (req, res) => {
+    const { classe, emploiDuTemps } = req.body;
+  
+    if (!classe || !emploiDuTemps) {
+      return res.status(400).json({ status: 'error', message: 'Données manquantes.' });
+    }
+  
+    try {
+      // Vérifie si un emploi du temps existe déjà pour cette classe
+      const EmploiTemps = await EmploiTemps.findOne({ classe });
+  
+      if (EmploiTemps) {
+        // Met à jour l'emploi du temps existant
+        EmploiTemps.emploiDuTemps = emploiDuTemps;
+      } else {
+        // Crée un nouvel emploi du temps
+        EmploiTemps = new EmploiTemps({ classe, emploiDuTemps });
+      }
+  
+      await EmploiTemps.save();
+      res.json({ status: 'ok', message: 'Emploi du temps enregistré avec succès.' });
+    } catch (error) {
+      console.error('Erreur lors de l\'enregistrement:', error);
+      res.status(500).json({ status: 'error', message: 'Erreur interne du serveur.' });
+    }
+  });
 
 app.post("/login-user", async (req, res) => {
   const { identifiant, password } = req.body;
@@ -262,18 +289,17 @@ app.get("/get-all-user", async (req, res) => {
 // Route pour obtenir toutes les classes
 app.get('/get-all-classes', async (req, res) => {
     try {
-        // Récupérer le niveau depuis les paramètres de la requête
-        const { niveau } = req.query;
-
-        // Filtrer les classes selon le niveau sélectionné
-        const classes = await Classe.find({ niveau }).select('nomClasse niveau');
-
+        const classes = await Classe.find({}).select('nomClasse niveau');
+        if (!classes.length) {
+            return res.status(404).json({ status: 'error', message: 'Aucune classe trouvée.' });
+        }
         res.json({ status: 'ok', classes });
     } catch (error) {
-        console.error(error);
-        res.json({ status: 'error', message: 'Erreur lors de la récupération des classes' });
+        console.error('Erreur:', error);
+        res.status(500).json({ status: 'error', message: 'Erreur serveur.' });
     }
 });
+
 
 // Pour obtenir tous les élèves sans tableau
 app.get('/get-eleves-by-niveau', async (req, res) => {
@@ -329,6 +355,15 @@ app.get('/get-all-classes', async (req, res) => {
     }
 });
 
+// Exemple d'endpoint pour récupérer les classes
+app.get('/listClasses', async (req, res) => {
+    try {
+      const classes = await Classe.find().populate('professeur').populate('eleves'); // Exemple de structure
+      res.status(200).json(classes);
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur lors de la récupération des classes.' });
+    }
+  });
 
 // Route pour assigner une classe à un professeur
 app.post('/assign-class-to-professeur', async (req, res) => {
