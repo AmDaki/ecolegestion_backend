@@ -1,12 +1,15 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const AbsenceSchema = new mongoose.Schema({
-    eleveId: { type: mongoose.Schema.Types.ObjectId, ref: 'Eleve' },
-    surveillantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Surveillant' },
-    dateAbsence: Date,
-    justification: String
-}, {
-    collection: "Absence"
+  professeurId: { type: String, required: true },
+  classe: { type: String, required: true },
+  absents: [
+    {
+      nom: { type: String, required: true },
+      prenom: { type: String, required: true },
+    },
+  ],
+  date: { type: Date, default: Date.now },
 });
 
-mongoose.model("Absence", AbsenceSchema);
+module.exports = mongoose.model('Absence', AbsenceSchema);

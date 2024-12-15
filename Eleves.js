@@ -9,11 +9,14 @@ const ElevesSchema = new mongoose.Schema({
     DateNaissance: String,
     userType: String,
     NiveauClasse: String,
-
-    classeId: { type: mongoose.Schema.Types.ObjectId, 
-        ref: 'Classe' },
-}, {
-    collection: "Eleves"
+    classe: { type: String, default: null },
+    absences: [{
+        date: Date,
+        estAbsent: Boolean
+    }]
+}, 
+{
+    collection: "Eleves" // Définir la collection ici
 });
 
 mongoose.model("Eleves", ElevesSchema);

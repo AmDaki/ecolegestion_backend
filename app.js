@@ -28,6 +28,7 @@ require('./Utilisateur');
 require('./Admin');
 require ('./EmploiTemps');
 
+
 const User = mongoose.model("UserInfo");
 const User_Professeur = mongoose.model("Professeur");
 const User_Parent = mongoose.model("Parent");
@@ -36,6 +37,10 @@ const User_Surveillant = mongoose.model("Surveillants");
 const User_Admin = mongoose.model("Admin");
 const Classe = mongoose.model("Classe");  
 const EmploiTemps=mongoose.model("EmploiTemps");
+const Eleves=mongoose.model("Eleves")
+const Professeur = mongoose.model("Professeur");
+const Absence = mongoose.model("Absence");
+
 
 app.get("/", (req, res) => {
     res.send({ status: "Started" });
@@ -123,63 +128,239 @@ app.post("/registerClasse", async (req, res) => {
   
     try {
       // Vérifie si un emploi du temps existe déjà pour cette classe
-      const EmploiTemps = await EmploiTemps.findOne({ classe });
+      let existingSchedule = await EmploiTemps.findOne({ classe });
   
-      if (EmploiTemps) {
+      if (existingSchedule) {
         // Met à jour l'emploi du temps existant
-        EmploiTemps.emploiDuTemps = emploiDuTemps;
+        existingSchedule.emploiDuTemps = emploiDuTemps;
+        await existingSchedule.save();
       } else {
         // Crée un nouvel emploi du temps
-        EmploiTemps = new EmploiTemps({ classe, emploiDuTemps });
+        const newSchedule = new EmploiTemps({ classe, emploiDuTemps });
+        await newSchedule.save();
       }
   
-      await EmploiTemps.save();
       res.json({ status: 'ok', message: 'Emploi du temps enregistré avec succès.' });
     } catch (error) {
       console.error('Erreur lors de l\'enregistrement:', error);
       res.status(500).json({ status: 'error', message: 'Erreur interne du serveur.' });
     }
   });
+  
+  app.post('/auth-professeur', async (req, res) => {
+    const { identifiant } = req.body;
+  
+    try {
+      const professeur = await Professeur.findOne({ identifiant });
+      if (!professeur) {
+        return res.status(404).json({ message: 'Professeur introuvable' });
+      }
+  
+      res.status(200).json({
+        success: true,
+        professeur, // Retourne les informations du professeur, y compris ses classes
+      });
+    } catch (error) {
+      console.error('Erreur lors de la vérification de l’identifiant:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  });
 
-app.post("/login-user", async (req, res) => {
-  const { identifiant, password } = req.body;
-  console.log(req.body);
+  // app.get('/professeur-classes/:identifiant', async (req, res) => {
+  //   const { identifiant } = req.params;
+  
+  //   try {
+  //     const professeur = await Professeur.findOne({ identifiant }).populate('classes');
+  //     if (!professeur) {
+  //       return res.status(404).json({ success: false, message: 'Professeur introuvable' });
+  //     }
+  
+  //     res.status(200).json({ success: true, classes: professeur.classes });
+  //   } catch (error) {
+  //     console.error('Erreur lors de la récupération des classes :', error);
+  //     res.status(500).json({ success: false, message: 'Erreur serveur' });
+  //   }
+  // });
 
-  let oldUser;
+
+  app.post('/auth/login', async (req, res) => {
+    const { identifiant, password } = req.body;
+  
+    try {
+      const professeur = await Professeur.findOne({ identifiant });
+  
+      if (!professeur) {
+        return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+      }
+  
+      if (professeur.password !== password) {
+        return res.status(401).json({ success: false, message: 'Mot de passe incorrect' });
+      }
+  
+      // Réponse avec l'identifiant et autres données nécessaires
+      res.status(200).json({
+        success: true,
+        identifiant: professeur.identifiant,
+        nom: professeur.nom,
+        prenom: professeur.prenom,
+        classes: professeur.classes,
+      });
+    } catch (error) {
+      console.error('Erreur lors de la connexion :', error);
+      res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
+  });
+
+  
+  app.get("/professeur-classes/:professeurIdentifiant", async (req, res) => {
+    const { professeurIdentifiant } = req.params;
+  
+    try {
+      // Chercher le professeur par identifiant
+      const professeur = await Professeur.findOne({ identifiant: professeurIdentifiant });
+  
+      if (!professeur) {
+        return res.status(404).json({ message: "Professeur introuvable." });
+      }
+  
+      // Retourner les classes assignées
+      res.json({ classes: professeur.classes });
+    } catch (error) {
+      console.error("Erreur lors de la récupération des classes :", error);
+      res.status(500).json({ message: "Erreur interne du serveur." });
+    }
+  });
+
+  app.post("/login-user", async (req, res) => {
+    const { identifiant, password } = req.body;
+    console.log(req.body);
+  
+    let oldUser;
+  
+    try {
+      // Vérification dans toutes les collections possibles
+      oldUser = await User.findOne({ identifiant }) ||
+                 await User_Professeur.findOne({ identifiant }) ||
+                 await User_Parent.findOne({ identifiant }) ||
+                 await User_Eleve.findOne({ identifiant }) ||
+                 await User_Surveillant.findOne({ identifiant }) ||
+                 await User_Admin.findOne({ identifiant });
+  
+      // Vérification si l'utilisateur existe
+      if (!oldUser) {
+        return res.send({ data: "User doesn't exist!" });
+      }
+  
+      // Comparer les mots de passe
+      const isPasswordValid = oldUser.password === password; // Enlever bcrypt
+      if (!isPasswordValid) {
+        return res.send({ status: "error", data: "Invalid password" });
+      }
+  
+      // Génération d'un token JWT
+      const token = jwt.sign({ identifiant: oldUser.identifiant, userType: oldUser.userType }, JWT_SECRET);
+      console.log("Token generated:", token);
+  
+      // Renvoi des informations à la réponse, y compris l'identifiant de l'utilisateur
+      return res.status(201).send({
+        status: "ok",
+        data: token,
+        userType: oldUser.userType,
+        identifiant: oldUser.identifiant,  // Ajout de l'identifiant ici
+      });
+  
+    } catch (error) {
+      console.error("Error during login:", error);
+      return res.send({ status: "error", data: "Something went wrong!" });
+    }
+  });
+  
+  app.get("/classes/:id/eleves", async (req, res) => {
+    const { id } = req.params;
+  
+    try {
+      const classe = await Classe.findById(id).populate("eleves"); // Récupérer les élèves liés à la classe
+      if (!classe) {
+        return res.status(404).send({ status: "error", data: "Classe not found" });
+      }
+  
+      return res.status(200).send({
+        status: "ok",
+        eleves: classe.eleves, // Liste des élèves dans cette classe
+      });
+  
+    } catch (error) {
+      console.error("Error fetching class data:", error);
+      return res.status(500).send({ status: "error", data: "Internal server error" });
+    }
+  });
+
+  app.post("/save-absences", async (req, res) => {
+    const { classeId, absents } = req.body;
+  
+    try {
+      const classe = await Classe.findById(classeId);
+      if (!classe) {
+        return res.status(404).send({ status: "error", data: "Classe not found" });
+      }
+  
+      // Enregistrez les absences (à adapter selon votre modèle)
+      for (const eleveId of absents) {
+        await Absence.create({ eleve: eleveId, classe: classeId, date: new Date() });
+      }
+  
+      return res.status(200).send({ status: "ok", data: "Absences enregistrées" });
+    } catch (error) {
+      console.error("Error saving absences:", error);
+      return res.status(500).send({ status: "error", data: "Internal server error" });
+    }
+  });
+  
+
+app.put('/enregistrer-absence', async (req, res) => {
+  const { identifiantProfesseur, classe, absences } = req.body;
 
   try {
-    // Vérification dans toutes les collections possibles
-    oldUser = await User.findOne({ identifiant }) ||
-               await User_Professeur.findOne({ identifiant }) ||
-               await User_Parent.findOne({ identifiant }) ||
-               await User_Eleve.findOne({ identifiant }) ||
-               await User_Surveillant.findOne({ identifiant }) ||
-               await User_Admin.findOne({ identifiant });
-
-    // Vérification si l'utilisateur existe
-    if (!oldUser) {
-      return res.send({ data: "User doesn't exist!" });
+    const professeur = await Professeur.findOne({ identifiant: identifiantProfesseur });
+    
+    if (!professeur || !professeur.classes.includes(classe)) {
+      return res.status(400).json({ error: "Le professeur n'est pas assigné à cette classe" });
     }
 
-    // Comparer les mots de passe
-    const isPasswordValid = oldUser.password === password; // Enlever bcrypt
-    if (!isPasswordValid) {
-      return res.send({ status: "error", data: "Invalid password" });
+    for (let absence of absences) {
+      const eleve = await Eleve.findOne({ identifiant: absence.eleveIdentifiant });
+
+      if (eleve && eleve.classes.includes(classe)) {
+        eleve.absences.push({ date: new Date(), estAbsent: absence.estAbsent });
+        await eleve.save();
+      }
     }
 
-    // Génération d'un token JWT
-    const token = jwt.sign({ identifiant: oldUser.identifiant, userType: oldUser.userType }, JWT_SECRET);
-    console.log("Token generated:", token);
-
-    return res.status(201).send({
-      status: "ok",
-      data: token,
-      userType: oldUser.userType,
-    });
-
+    res.status(200).json({ status: "Absences enregistrées avec succès" });
   } catch (error) {
-    console.error("Error during login:", error);
-    return res.send({ status: "error", data: "Something went wrong!" });
+    console.error(error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+app.get('/professeur-classes/:identifiant', async (req, res) => {
+  const { identifiant } = req.params;
+
+  try {
+    const professeur = await User_Professeur.findOne({ identifiant: identifiant });
+
+    if (!professeur) {
+      return res.status(404).json({ error: "Professeur non trouvé" });
+    }
+
+    // Retourner les classes assignées au professeur
+    res.status(200).json({
+      status: "ok",
+      classes: professeur.classes
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
@@ -301,7 +482,6 @@ app.get('/get-all-classes', async (req, res) => {
 });
 
 
-// Pour obtenir tous les élèves sans tableau
 app.get('/get-eleves-by-niveau', async (req, res) => {
     const { niveau } = req.query; // On récupère le niveau depuis les paramètres de requête
     
@@ -312,12 +492,38 @@ app.get('/get-eleves-by-niveau', async (req, res) => {
             return res.json({ status: 'ok', message: 'Aucun élève trouvé pour ce niveau' });
         }
         
-        res.json({ status: 'ok', eleves: eleves }); // Retourne un objet avec la clé 'eleves'
+        // Retourne un objet avec la clé 'eleves' contenant les données
+        res.json({ status: 'ok', eleves });
     } catch (error) {
         console.error('Erreur lors de la récupération des élèves:', error);
         res.json({ status: 'error', message: 'Erreur lors de la récupération des élèves' });
     }
 });
+
+app.get('/get-classes-by-niveau', async (req, res) => {
+  const { niveau } = req.query; // Récupère le niveau depuis les paramètres de requête
+
+  if (!niveau) {
+      return res.json({ status: 'error', message: 'Le niveau est requis' });
+  }
+
+  try {
+      // Rechercher les classes par niveau
+      const classes = await Classe.find({ niveau: niveau }).select('nomClasse niveau');
+
+      if (classes.length === 0) {
+          return res.json({ status: 'ok', message: 'Aucune classe trouvée pour ce niveau' });
+      }
+
+      // Retourner les classes trouvées
+      res.json({ status: 'ok', classes });
+  } catch (error) {
+      console.error('Erreur lors de la récupération des classes:', error);
+      res.json({ status: 'error', message: 'Erreur lors de la récupération des classes' });
+  }
+});
+
+
 
 
 
@@ -366,60 +572,212 @@ app.get('/listClasses', async (req, res) => {
   });
 
 // Route pour assigner une classe à un professeur
-app.post('/assign-class-to-professeur', async (req, res) => {
-    const { professeurIdentifiant, nomClasse } = req.body; // Modification des noms des champs reçus
+// app.post('/assign-class-to-professeur', async (req, res) => {
+//     const { professeurIdentifiant, nomClasse } = req.body; // Modification des noms des champs reçus
 
-    try {
-        // Trouver la classe par son nom
-        const classe = await Classe.findOne({ nomClasse });
-        if (!classe) {
-            return res.status(404).send({ status: "error", data: "Classe introuvable" });
-        }
+//     try {
+//         // Trouver la classe par son nom
+//         const classe = await Classe.findOne({ nomClasse });
+//         if (!classe) {
+//             return res.status(404).send({ status: "error", data: "Classe introuvable" });
+//         }
 
-        // Mettre à jour la classe avec l'identifiant du professeur
-        const updatedClasse = await Classe.updateOne(
-            { nomClasse },
-            { $set: { professeur_identifiant: professeurIdentifiant } }  // Enregistrer avec identifiant
-        );
+//         // Mettre à jour la classe avec l'identifiant du professeur
+//         const updatedClasse = await Classe.updateOne(
+//             { nomClasse },
+//             { $set: { professeur_identifiant: professeurIdentifiant } }  // Enregistrer avec identifiant
+//         );
 
-        if (updatedClasse.nModified === 0) {
-            return res.status(404).send({ status: "error", data: "Impossible d'attribuer la classe" });
-        }
+//         if (updatedClasse.nModified === 0) {
+//             return res.status(404).send({ status: "error", data: "Impossible d'attribuer la classe" });
+//         }
 
-        res.json({ status: 'ok', message: 'Classe attribuée avec succès' });
-    } catch (error) {
-        console.error('Erreur lors de l\'attribution de la classe:', error);
-        res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe' });
-    }
-});
+//         res.json({ status: 'ok', message: 'Classe attribuée avec succès' });
+//     } catch (error) {
+//         console.error('Erreur lors de l\'attribution de la classe:', error);
+//         res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe' });
+//     }
+// });
+
 // Route pour assigner une classe aux élèves d'un niveau sélectionné
 app.post('/assign-class-to-eleves', async (req, res) => {
-    const { niveau, nomClasse } = req.body; // Récupérer le niveau et le nom de la classe
+  const { niveau, classeNom } = req.body;
 
-    try {
-        // Trouver la classe par son nom
-        const classe = await Classe.findOne({ nomClasse });
-        if (!classe) {
-            return res.status(404).send({ status: "error", message: "Classe introuvable" });
-        }
+  try {
+      const classe = await Classe.findOne({ nomClasse: classeNom });
+      if (!classe) {
+          return res.status(404).send({ status: "error", message: "Classe introuvable" });
+      }
 
-        // Mettre à jour les élèves du niveau sélectionné avec la classe
-        const updatedEleves = await Eleve.updateMany(
-            { niveau },
-            { $set: { classe: nomClasse } }  // Attribuer la classe aux élèves du niveau sélectionné
-        );
+      const updatedEleves = await Eleves.updateMany(
+          { niveau },
+          { $set: { classe: classeNom } }
+      );
 
-        if (updatedEleves.nModified === 0) {
-            return res.status(404).send({ status: "error", message: "Aucun élève mis à jour pour ce niveau" });
-        }
+      if (updatedEleves.nModified === 0) {
+          return res.status(404).send({ status: "error", message: "Aucun élève mis à jour pour ce niveau" });
+      }
 
-        res.json({ status: 'ok', message: 'Classe attribuée aux élèves avec succès' });
-    } catch (error) {
-        console.error('Erreur lors de l\'attribution de la classe aux élèves:', error);
-        res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe aux élèves' });
-    }
+      res.json({ status: 'ok', message: 'Classe attribuée aux élèves avec succès' });
+  } catch (error) {
+      console.error('Erreur lors de l\'attribution de la classe aux élèves:', error);
+      res.status(500).json({ status: 'error', message: 'Erreur lors de l\'attribution de la classe aux élèves' });
+  }
 });
 
+app.put('/assign-classe', async (req, res) => {
+  const { classeNom, identifiants } = req.body;
+
+  // Vérification si les données nécessaires sont présentes
+  if (!identifiants || !classeNom || identifiants.length === 0) {
+    return res.status(400).json({ error: "Identifiants des élèves et classeNom sont requis" });
+  }
+
+  try {
+    // Mettre à jour la classe pour chaque élève
+    const updatedEleves = await Eleves.updateMany(
+      { identifiant: { $in: identifiants } }, // Filtre sur les identifiants fournis
+      { $set: { classe: classeNom } }, // Mise à jour de la classe
+      { new: true } // Retourner les objets mis à jour
+    );
+
+    if (updatedEleves.nModified === 0) {
+      return res.status(404).json({ error: "Aucun élève trouvé avec les identifiants fournis" });
+    }
+
+    res.status(200).json({
+      message: "Classes attribuées avec succès",
+      data: updatedEleves
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur serveur lors de l'attribution des classes" });
+  }
+});
+
+
+app.put('/assign-classe', async (req, res) => {
+  const { classeNom, identifiants } = req.body;
+
+  // Vérification si les données nécessaires sont présentes
+  if (!identifiants || !classeNom || identifiants.length === 0) {
+    return res.status(400).json({ error: "Identifiants des élèves et classeNom sont requis" });
+  }
+
+  try {
+    // Mettre à jour la classe pour chaque élève
+    const updatedEleves = await Eleves.updateMany(
+      { identifiant: { $in: identifiants } }, // Filtre sur les identifiants fournis
+      { $set: { classe: classeNom } }, // Mise à jour de la classe
+      { new: true } // Retourner les objets mis à jour
+    );
+
+    if (updatedEleves.nModified === 0) {
+      return res.status(404).json({ error: "Aucun élève trouvé avec les identifiants fournis" });
+    }
+
+    res.status(200).json({
+      message: "Classes attribuées avec succès",
+      data: updatedEleves
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erreur serveur lors de l'attribution des classes" });
+  }
+});
+
+app.put('/assign-classe-professeur', async (req, res) => {
+  const { identifiant, classeNom } = req.body;
+
+  if (!identifiant || !classeNom) {
+      return res.status(400).json({ error: "Identifiant et classeNom sont requis" });
+  }
+
+  try {
+      // Rechercher le professeur par son identifiant et mettre à jour la classe
+      const updatedProfesseur = await Professeur.findOneAndUpdate(
+          { identifiant },           // Filtre : identifiant unique
+          { $push: { classes: classeNom } },  // Ajouter la classe à la liste des classes
+          { new: true }              // Retourner l'objet mis à jour
+      );
+
+      if (!updatedProfesseur) {
+          return res.status(404).json({ error: "Professeur non trouvé avec cet identifiant" });
+      }
+
+      res.status(200).json({
+          message: "Classe attribuée au professeur avec succès",
+          data: updatedProfesseur
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Erreur serveur lors de l'attribution de la classe au professeur" });
+  }
+});
+
+app.put('/assign-class-to-professeur', async (req, res) => {
+  const { professeurIdentifiant, nomClasses } = req.body;  // nomClasses doit être un tableau
+
+  if (!professeurIdentifiant || !nomClasses || nomClasses.length === 0) {
+    return res.status(400).json({ error: "Identifiant du professeur et nom de la classe sont requis" });
+  }
+
+  try {
+    const professeur = await Professeur.findOne({ identifiant: professeurIdentifiant });
+
+    if (!professeur) {
+      return res.status(404).json({ error: 'Professeur non trouvé' });
+    }
+
+    // Vérification des classes déjà attribuées
+    const duplicateClasses = nomClasses.filter(nomClasse => professeur.classes.includes(nomClasse));
+    if (duplicateClasses.length > 0) {
+      return res.status(400).json({ error: 'DuplicateAssignment' });
+    }
+
+    // Ajout des nouvelles classes
+    professeur.classes.push(...nomClasses);  // Ajouter plusieurs classes
+    await professeur.save();
+
+    res.status(200).json({
+      status: 'ok',
+      data: professeur
+    });
+  } catch (error) {
+    console.error('Erreur lors du traitement:', error);
+    res.status(500).json({ error: "Erreur serveur lors de l'attribution de la classe" });
+  }
+});
+
+
+
+app.post('/save-emploitempss', async (req, res) => {
+  const { token } = req.body;
+
+  try {
+    // Vérifier si l'élève est authentifié et récupérer sa classe
+    const eleve = await Eleves.findOne({ token: token });
+
+    if (!eleve) {
+      return res.status(404).json({ error: "Élève non trouvé" });
+    }
+
+    const classe = eleve.classe;  // Correction ici
+
+    // Récupérer l'emploi du temps de l'élève en fonction de sa classe
+    const emploisTemps = await EmploiTemps.find({ classe: classe });
+
+    if (!emploisTemps || emploisTemps.length === 0) {
+      return res.status(404).json({ error: "Emploi du temps non trouvé pour cette classe" });
+    }
+
+    res.status(200).json({ emploiDuTemps: emploisTemps });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'emploi du temps :', error);
+    res.status(500).json({ error: "Erreur serveur lors de la récupération de l'emploi du temps" });
+  }
+});
 
 
 
@@ -460,6 +818,250 @@ app.post("/delete-user", async (req, res) => {
         return res.status(500).send({ status: "error", data: "Erreur interne du serveur." });
     }
 });
+app.put('/update-classe', (req, res) => {
+  const { classe, eleveId } = req.body;
+
+  Classe.findOneAndUpdate(
+    { nomClasse: classe },
+    { $push: { eleves: eleveId } },
+    { new: true }
+  )
+    .then((updatedClasse) => {
+      res.json({ status: 'ok', classe: updatedClasse });
+    })
+    .catch((error) => {
+      res.status(500).json({ status: 'error', message: error.message });
+    });
+});
+
+app.put('/update-eleve', (req, res) => {
+  const { eleveId, classe } = req.body;
+
+  Eleve.findByIdAndUpdate(eleveId, { classe }, { new: true })
+    .then((updatedEleve) => {
+      res.json({ status: 'ok', eleve: updatedEleve });
+    })
+    .catch((error) => {
+      res.status(500).json({ status: 'error', message: error.message });
+    });
+});
+
+
+
+app.get('/classes/:classeId/eleves', async (req, res) => {
+  const { classeId } = req.params;
+  try {
+      const eleves = await Eleves.find({ classeId });
+      res.status(200).json(eleves);
+  } catch (error) {
+      res.status(500).json({ error: 'Erreur lors de la récupération des élèves.' });
+  }
+});
+
+
+app.get('/professeur/:identifiant', async (req, res) => {
+  const { identifiant } = req.params;
+
+  try {
+    // Rechercher le professeur et peupler les classes associées
+    const professeur = await User_Professeur.findOne({ identifiant }).populate('classes');
+
+    if (!professeur) {
+      return res.status(404).json({ message: "Professeur non trouvé." });
+    }
+
+    res.json(professeur.classes);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur lors de la récupération des classes." });
+  }
+});
+
+
+app.get('/professeur-classes/:identifiant', async (req, res) => {
+  const professeur = await User_Professeur.findOne({ identifiant: req.params.identifiant });
+  if (!professeur) {
+    return res.status(404).json({ success: false, message: 'Professeur non trouvé' });
+  }
+  // Ajoutez l'identifiant dans la réponse
+  res.json({
+    success: true,
+    data: {
+      identifiant: professeur.identifiant,
+      classes: professeur.classes,
+    },
+  });
+});
+
+// Route pour récupérer les élèves d'une classe
+app.get('/classe/:classe', async (req, res) => {
+  const { classe } = req.params; // Extraire la classe depuis les paramètres
+
+  try {
+    // Trouver les élèves ayant la classe spécifiée
+    const eleves = await Eleves.find({ classe });
+
+    // Si aucun élève trouvé, retourner un message d'erreur
+    if (eleves.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucun élève trouvé pour cette classe.',
+      });
+    }
+
+    // Retourner les élèves trouvés
+    return res.status(200).json({
+      success: true,
+      eleves,
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des élèves :', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur interne du serveur.',
+    });
+  }
+});
+
+app.post('/api/absences', async (req, res) => {
+  const { professeurId, classe, absents } = req.body;
+
+  if (!professeurId || !classe || !absents || !Array.isArray(absents)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Données manquantes ou invalides. Veuillez vérifier les informations envoyées.',
+    });
+  }
+
+  try {
+    // Enregistrer les absences dans la base de données
+    const result = await Absence.create({
+      professeurId,
+      classe,
+      absents,
+      date: new Date(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Absences enregistrées avec succès.',
+      result,
+    });
+  } catch (error) {
+    console.error('Erreur lors de l\'enregistrement des absences :', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur interne du serveur.',
+    });
+  }
+});
+
+app.get('/professeur-classess/:professeurIdentifiant', async (req, res) => {
+  try {
+    const { professeurIdentifiant } = req.params;
+
+    // Trouver le professeur avec l'identifiant
+    const professeur = await Professeur.findOne({ identifiant: professeurIdentifiant });
+
+    if (!professeur) {
+      return res.status(404).json({ success: false, message: 'Professeur non trouvé' });
+    }
+
+    // Renvoyer les classes
+    res.status(200).json({ success: true, classes: professeur.classes });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des classes :', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+const multer = require('multer');
+const fs = require('fs');
+const XLSX = require('xlsx');
+const path = require('path');
+
+
+// Middleware pour parser les JSON
+app.use(express.json({ limit: '10mb' }));
+
+// Configuration de multer pour les fichiers temporaires
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, './uploads/'); // Dossier temporaire
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+const upload = multer({ storage });
+
+// Endpoint pour recevoir les fichiers
+app.post('/upload-notes', upload.single('file'), async (req, res) => {
+  try {
+    // Vérifier si un fichier est présent
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
+    }
+
+    const filePath = req.file.path;
+
+    // Lire et vérifier le fichier Excel
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0]; // Première feuille
+    const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    // Valider la structure du fichier (colonnes attendues : Nom, Prenom, Classe, Matière, Note, Commentaire)
+    const expectedColumns = ['Nom', 'Prenom', 'Classe', 'Matière', 'Note', 'Commentaire'];
+    const actualColumns = Object.keys(sheetData[0] || {});
+    if (!expectedColumns.every((col) => actualColumns.includes(col))) {
+      return res.status(400).json({
+        success: false,
+        message: `Colonnes attendues : ${expectedColumns.join(', ')}`,
+      });
+    }
+
+    // Traiter les données
+    const notes = sheetData.map((row) => ({
+      nom: row.Nom,
+      prenom: row.Prenom,
+      classe: row.Classe,
+      matiere: row['Matière'],
+      note: row.Note,
+      commentaire: row.Commentaire,
+    }));
+
+    // Sauvegarder les notes dans la base de données (MongoDB ou autre)
+    // Exemple avec Mongoose
+    /*
+    const Note = mongoose.model('Note', new mongoose.Schema({
+      nom: String,
+      prenom: String,
+      classe: String,
+      matiere: String,
+      note: Number,
+      commentaire: String,
+    }));
+
+    await Note.insertMany(notes);
+    */
+
+    // Supprimer le fichier temporaire
+    fs.unlinkSync(filePath);
+
+    // Réponse de succès
+    res.status(200).json({ success: true, message: 'Notes enregistrées avec succès', notes });
+  } catch (error) {
+    console.error('Erreur lors du traitement du fichier :', error);
+
+    // Supprimer le fichier temporaire en cas d'erreur
+    if (req.file) fs.unlinkSync(req.file.path);
+
+    res.status(500).json({ success: false, message: 'Erreur lors du traitement du fichier' });
+  }
+});
+
+
 
 
 app.listen(5000, () => {
