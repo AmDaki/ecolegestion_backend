@@ -1062,7 +1062,37 @@ app.post('/upload-notes', upload.single('file'), async (req, res) => {
 });
 
 
+// Modèle MongoDB
+const fileSchema = new mongoose.Schema({
+  name: String,
+  type: String,
+  content: String, // Base64
+});
+const File = mongoose.model('File', fileSchema);
 
+// Route : Sauvegarder un fichier
+app.post('/upload-file', async (req, res) => {
+  const { name, type, content } = req.body;
+  const file = new File({ name, type, content });
+  await file.save();
+  res.json({ success: true });
+});
+
+// Route : Récupérer les fichiers
+app.get('/get-files', async (req, res) => {
+  const files = await File.find({}, { content: 0 }); // Ne pas renvoyer le contenu
+  res.json({ success: true, files });
+});
+
+// Route : Télécharger un fichier
+app.get('/download-file/:id', async (req, res) => {
+  const file = await File.findById(req.params.id);
+  if (file) {
+    res.json({ success: true, content: file.content });
+  } else {
+    res.json({ success: false });
+  }
+});
 
 app.listen(5000, () => {
     console.log("Node js server started.");
