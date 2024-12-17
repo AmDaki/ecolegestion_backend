@@ -983,53 +983,10 @@ const path = require('path');
 
 
 // Middleware pour parser les JSON
-app.use(express.json({ limit: '10mb' }));
 
-// Configuration de multer pour les fichiers temporaires
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, './uploads/'); // Dossier temporaire
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
-});
-const upload = multer({ storage });
 
 // Endpoint pour recevoir les fichiers
-app.post('/upload-notes', upload.single('file'), async (req, res) => {
-  try {
-    // Vérifier si un fichier est présent
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
-    }
 
-    const filePath = req.file.path;
-
-    // Lire et vérifier le fichier Excel
-    const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0]; // Première feuille
-    const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-    // Valider la structure du fichier (colonnes attendues : Nom, Prenom, Classe, Matière, Note, Commentaire)
-    const expectedColumns = ['Nom', 'Prenom', 'Classe', 'Matière', 'Note', 'Commentaire'];
-    const actualColumns = Object.keys(sheetData[0] || {});
-    if (!expectedColumns.every((col) => actualColumns.includes(col))) {
-      return res.status(400).json({
-        success: false,
-        message: `Colonnes attendues : ${expectedColumns.join(', ')}`,
-      });
-    }
-
-    // Traiter les données
-    const notes = sheetData.map((row) => ({
-      nom: row.Nom,
-      prenom: row.Prenom,
-      classe: row.Classe,
-      matiere: row['Matière'],
-      note: row.Note,
-      commentaire: row.Commentaire,
-    }));
 
     // Sauvegarder les notes dans la base de données (MongoDB ou autre)
     // Exemple avec Mongoose
@@ -1047,19 +1004,6 @@ app.post('/upload-notes', upload.single('file'), async (req, res) => {
     */
 
     // Supprimer le fichier temporaire
-    fs.unlinkSync(filePath);
-
-    // Réponse de succès
-    res.status(200).json({ success: true, message: 'Notes enregistrées avec succès', notes });
-  } catch (error) {
-    console.error('Erreur lors du traitement du fichier :', error);
-
-    // Supprimer le fichier temporaire en cas d'erreur
-    if (req.file) fs.unlinkSync(req.file.path);
-
-    res.status(500).json({ success: false, message: 'Erreur lors du traitement du fichier' });
-  }
-});
 
 
 // Modèle MongoDB
@@ -1091,6 +1035,170 @@ app.get('/download-file/:id', async (req, res) => {
     res.json({ success: true, content: file.content });
   } else {
     res.json({ success: false });
+  }
+});
+
+
+
+app.get('/mes-notes/:nomClasse', async (req, res) => {
+  const { nomClasse } = req.params;
+
+  try {
+    const classe = await Classe.findOne({ nomClasse }).populate('eleves');
+    if (!classe) {
+      return res.status(404).json({ success: false, message: 'Classe non trouvée.' });
+    }
+
+    // Récupérer les fichiers associés à la classe
+    res.status(200).json({ success: true, files: classe.files || [] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération des notes.' });
+  }
+});
+
+app.get('/professeur-classes/:profId', async (req, res) => {
+  const { profId } = req.params;
+  try {
+    const professeur = await Professeur.findOne({ identifiant: profId });
+
+    if (!professeur) {
+      return res.status(404).json({ success: false, message: 'Professeur non trouvé.' });
+    }
+
+    // Renvoyer les classes du professeur
+    res.json({ success: true, classes: professeur.classes || [] });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des classes :', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+});
+
+
+// Configuration de Multer pour stocker les fichiers téléchargés
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);  // Crée le dossier si il n'existe pas
+    }
+    cb(null, uploadDir);  // Spécifie où le fichier sera enregistré
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));  // Nom du fichier avec timestamp
+  }
+});
+
+const uploadDir = 'uploads/';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);  // Crée le dossier si il n'existe pas
+}
+
+
+const upload = multer({ storage: storage });
+
+// Route pour uploader les notes
+const Fichier = require('./Fichier'); // Assurez-vous du chemin correct
+
+app.post('/upload-notes', upload.single('file'), async (req, res) => {
+  console.log('Requête reçue :');
+  console.log('Headers:', req.headers);
+  console.log('Body:', req.body);
+  console.log('Fichier:', req.file);
+
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'Aucun fichier téléchargé.' });
+  }
+
+  const { nomClasse } = req.body;
+
+  try {
+    // Créer un nouvel enregistrement pour le fichier
+    const fichier = new Fichier({
+      nomFichier: req.file.originalname,
+      chemin: req.file.path,
+      classe: nomClasse,
+    });
+
+    await fichier.save();
+
+    // Mettre à jour les élèves de la classe concernée avec le fichier
+    await Eleves.updateMany(
+      { classe: nomClasse },
+      { $push: { fichiers: fichier } } // Ajout de l'ID du fichier ou des détails selon votre structure
+    );
+
+    res.json({ success: true, message: 'Fichier téléchargé et associé à la classe.', fichier });
+  } catch (error) {
+    console.error('Erreur lors du téléchargement :', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors du téléchargement.' });
+  }
+});
+
+// Route pour récupérer les fichiers d'une classe
+// Route GET pour récupérer les fichiers des élèves d'une classe
+app.get('/mes-notes/:nomClasse', async (req, res) => {
+  const { nomClasse } = req.params;
+
+  if (!nomClasse) {
+    return res.status(400).json({ success: false, message: 'nomClasse est requis' });
+  }
+
+  try {
+    const eleves = await Eleves.find({ classe: nomClasse });
+
+    console.log('Élèves trouvés :', eleves); // Log complet des élèves
+
+    if (!eleves.length) {
+      console.log('Aucun élève trouvé pour la classe:', nomClasse);
+      return res.status(404).json({ success: false, message: 'Aucun élève trouvé pour cette classe.' });
+    }
+
+    // Extraire les fichiers avec une vérification supplémentaire
+    const fichiers = eleves.flatMap((eleve) => {
+      console.log(`Fichiers pour ${eleve.nom} ${eleve.prenom}:`, eleve.fichiers);
+      return eleve.fichiers || [];
+    });
+
+    console.log('Fichiers finaux récupérés :', fichiers);
+
+    if (fichiers.length === 0) {
+      return res.status(404).json({ success: false, message: 'Aucun fichier trouvé pour cette classe.' });
+    }
+
+    res.json({ success: true, files: fichiers });
+  } catch (error) {
+    console.error('Erreur serveur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+app.post('/fetch-files', async (req, res) => {
+  const { userToken } = req.body;  // Assurez-vous que le champ est bien 'userToken'
+  
+  if (!userToken) {
+    return res.status(400).json({ message: 'Token manquant' });
+  }
+
+  try {
+    const user = await User.findOne({ token: userToken });
+    if (!user) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+
+    const classe = user.classe;  // Récupérer la classe
+    const files = await File.find({ classe });
+    
+    if (!files || files.length === 0) {
+      return res.status(404).json({ message: 'Aucun fichier trouvé' });
+    }
+
+    res.json({ files });
+  } catch (error) {
+    console.error('Erreur côté serveur:', error);
+    res.status(500).json({ message: 'Erreur du serveur' });
   }
 });
 

@@ -1,22 +1,26 @@
 const mongoose = require("mongoose");
 
 const ElevesSchema = new mongoose.Schema({
-    identifiant: String,
-    nom: String,
-    prenom: String,
-    telephone: String,
-    password: String,
-    DateNaissance: String,
-    userType: String,
-    NiveauClasse: String,
-    classe: { type: String, default: null },
-    absences: [{
-        date: Date,
-        estAbsent: Boolean
-    }]
-}, 
-{
-    collection: "Eleves" // Définir la collection ici
+  identifiant: String,
+  nom: String,
+  prenom: String,
+  telephone: String,
+  password: String,
+  DateNaissance: String,
+  userType: String,
+  NiveauClasse: String,
+  classe: { type: String, default: null }, // Utilisation de nomClasse comme référence
+  absences: [{
+    date: Date,
+    estAbsent: Boolean
+  }],
+  fichiers: [{
+    nomFichier: String,
+    chemin: String, // Stocker le chemin ou l'URL du fichier
+    dateAjout: { type: Date, default: Date.now }
+  }]
 });
 
-mongoose.model("Eleves", ElevesSchema);
+const Eleves = mongoose.model("Eleves", ElevesSchema);
+
+module.exports = Eleves;
